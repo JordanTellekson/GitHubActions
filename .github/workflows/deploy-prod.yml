@@ -5,12 +5,8 @@ name: Deploy .NET App to Azure App Service (Prod)
 on:
   push:
     branches: [ "master" ]
-
-permissions:
-  id-token: write
-  contents: read
  
-
+ 
 env:
   AZURE_WEBAPP_NAME: wp1-17370703-fa25     # replace <student> with actual id
   DOTNET_VERSION: '8.0.x'
@@ -37,10 +33,7 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          auth-type: IDENTITY
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
  
  
       - name: Deploy to Azure Web App (Production)
