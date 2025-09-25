@@ -9,7 +9,10 @@ on:
         description: 'Container image tag'
         required: true
         default: 'build-${{ github.run_number }}'
- 
+
+permissions:
+  id-token: write
+  contents: read
  
 env:
   APP_NAME: wp1-17370703-fa25      # replace <student>
@@ -31,7 +34,7 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          auth-type: IDENTITY
  
  
       - name: Get ACR login server
