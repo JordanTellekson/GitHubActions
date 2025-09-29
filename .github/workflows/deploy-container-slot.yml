@@ -1,124 +1,67 @@
-﻿name: Build & Deploy Container to Slot
+﻿# .github/workflows/deploy-container-slot.yml
+name: Build & Deploy Container to Slot
+ 
  
 on:
-
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Container image tag'
+        required: true
+        default: 'build-${{ github.run_number }}'
+ 
  
 env:
-
-  RG: rg-WebProgramming1-Fall2025-bs
-
-  WEBAPP: wp1-17370703-fa25
-
+  APP_NAME: wp1-17370703-fa25      # replace <student>
   SLOT: container-demo
-
-  ACR_NAME: wp1fa25acr            # no .azurecr.io suffix
-
-  IMAGE_NAME: wp1app              # repo name inside ACR
+  ACR_NAME: wp1fa25acr
+  IMAGE_NAME: ${{ github.repository }}  # or use $APP_NAME for per-app tagging
+ 
  
 jobs:
-
-  build-and-deploy:
-
+  build-push-configure:
     runs-on: ubuntu-latest
-
-    permissions:
-
-      contents: read
-
-      id-token: write
- 
     steps:
-
-      - name: Checkout
-
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
  
-      - name: Azure Login (Service Principal)
-
+ 
+      - name: Azure Login
         uses: azure/login@v2
-
         with:
-
-          creds: >
-
-            {"clientId":"${{ secrets.AZURE_CLIENT_ID }}",
-
-             "clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}",
-
-             "tenantId":"${{ secrets.AZURE_TENANT_ID }}",
-
-             "subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}"}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
  
-      # Build from repo root using the project Dockerfile
-
-      - name: Build image (Dockerfile in project directory)
-
+ 
+      - name: Get ACR login server
+        id: acr
         run: |
-
-          TAG=${{ github.sha }}
-
-          docker build -f deploymentfall25/deploymentfall25/Dockerfile -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$TAG .
-
-          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "login=$(az acr show -n ${{ env.ACR_NAME }} --query loginServer -o tsv)" >> $GITHUB_OUTPUT
  
-      - name: ACR Login (RBAC)
-
-        run: az acr login --name $ACR_NAME
  
-      - name: Push image to ACR
-
-        run: docker push $ACR_NAME.azurecr.io/$IMAGE_NAME:${TAG}
- 
-      # --- Sanity verifier #1: show the image we just built/pushed ---
-
-      - name: Show image tag
-
+      - name: Build & push image to ACR
         run: |
-
-          echo "Using image: $ACR_NAME.azurecr.io/$IMAGE_NAME:${TAG}"
-
-          echo "image=$ACR_NAME.azurecr.io/$IMAGE_NAME:${TAG}" >> $GITHUB_STEP_SUMMARY
-
-          # Optional: assert the tag exists in ACR
-
-          az acr repository show-tags -n $ACR_NAME --repository $IMAGE_NAME \
-
-            --query "[?@=='${TAG}']" -o tsv
+          az acr build \
+            --registry ${{ env.ACR_NAME }} \
+            --image ${{ steps.acr.outputs.login }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.tag }} \
+            .
  
-      - name: Point SLOT to new image
-
+ 
+      - name: Update slot to use new image
         run: |
-
           az webapp config container set \
-
-            -g $RG -n $WEBAPP --slot $SLOT \
-
-            --docker-custom-image-name $ACR_NAME.azurecr.io/$IMAGE_NAME:${TAG} \
-
-            --docker-registry-server-url https://$ACR_NAME.azurecr.io
+            --resource-group rg-WebProgramming1-Fall2025-bs \
+            --name ${{ env.APP_NAME }} \
+            --slot ${{ env.SLOT }} \
+            --docker-custom-image-name ${{ steps.acr.outputs.login }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.tag }} \
+            --docker-registry-server-url https://${{ steps.acr.outputs.login }}
  
-      # Keep port aligned with ASPNETCORE_URLS=http://+:8080 in your Dockerfile
-
-      - name: Ensure WEBSITES_PORT=8080 on slot
-
+ 
+      - name: Set container port
         run: |
-
           az webapp config appsettings set \
-
-            -g $RG -n $WEBAPP --slot $SLOT \
-
+            --resource-group rg-WebProgramming1-Fall2025-bs \
+            --name ${{ env.APP_NAME }} \
+            --slot ${{ env.SLOT }} \
             --settings WEBSITES_PORT=8080
- 
-      # --- Sanity verifier #2: confirm the slot is set to that exact tag ---
-
-      - name: Confirm slot container config
-
-        run: |
-
-          az webapp config container show -g $RG -n $WEBAPP --slot $SLOT -o jsonc
- 
-      - name: Restart slot
-
-        run: az webapp restart -g $RG -n $WEBAPP --slot $SLOT
- 
